@@ -1,163 +1,155 @@
 # BTG FinStream Dashboard
 
-Plataforma de monitoramento de transacoes financeiras em tempo real, orientada a eventos, com foco em observabilidade operacional, persistencia historica e visualizacao institucional para mesas, assessorias e operacoes de investimento.
+Plataforma de monitoramento de transações financeiras em tempo real, orientada a eventos, desenvolvida para demonstrar arquitetura moderna de streaming, resiliência operacional, persistência histórica e visualização institucional com foco em contexto financeiro.
 
-## 1. Descricao Executiva
+## Visão Executiva
 
-O **BTG FinStream Dashboard** e um projeto de portfolio tecnico construido para demonstrar, de ponta a ponta, uma arquitetura moderna de streaming financeiro. O sistema combina ingestao de eventos em tempo real, integracao com mercado via API externa, processamento backend resiliente, persistencia relacional, entrega via WebSocket e uma interface React com visual inspirado em terminais institucionais.
+O **BTG FinStream Dashboard** é um projeto de portfólio técnico construído para simular, de forma realista, uma plataforma interna de acompanhamento de operações financeiras. O sistema combina ingestão de eventos, processamento assíncrono, transmissão em tempo real para interface web, persistência relacional e trilha opcional de ingestão serverless na AWS.
 
-O projeto nao simula apenas uma tela bonita: ele materializa um fluxo operacional realista para monitoramento de transacoes, com **pipeline assinado por eventos**, **deduplicacao**, **DLQ em memoria**, **metricas operacionais**, **persistencia em PostgreSQL** e **atualizacao ao vivo no frontend**.
+O objetivo não é apenas exibir dados em um dashboard, mas demonstrar capacidade de desenhar e implementar uma solução próxima de ambientes reais de operações, assessoria, tecnologia financeira e observabilidade de pipelines.
 
-## 2. Problema Que o Projeto Resolve
+## Problema de Negócio
 
-Em ambientes financeiros, nao basta registrar uma transacao. E necessario:
+Em um ambiente financeiro, times operacionais e tecnológicos precisam responder rapidamente a perguntas como:
 
-- acompanhar o fluxo de eventos em tempo real;
-- identificar falhas de ingestao sem derrubar o pipeline;
-- manter historico consultavel para auditoria e investigacao;
-- expor saude operacional para times tecnicos e de negocio;
-- transformar dados brutos em uma camada visual util para supervisao operacional.
+- quais transações estão entrando agora;
+- quais clientes e ativos estão mais ativos no fluxo;
+- se o pipeline está saudável ou degradado;
+- se há eventos inválidos ou duplicados;
+- se as operações processadas estão sendo persistidas corretamente.
 
-Sem isso, desks, operacoes e times de tecnologia operam com baixa visibilidade, resposta tardia a incidentes e pouca confianca sobre o estado real do sistema.
+Sem essa visibilidade, a operação perde capacidade de reação, investigação e acompanhamento em tempo real.
 
-## 3. Solucao Proposta
+## Solução Proposta
 
-O BTG FinStream Dashboard implementa uma arquitetura enxuta, mas orientada a praticas de producao:
+O projeto implementa um fluxo enxuto, porém orientado a práticas de produção:
 
-- um **producer em Python** gera eventos transacionais e publica em **Redpanda/Kafka**;
-- os precos utilizados sao obtidos em tempo real via **Finnhub**;
-- o contexto transacional continua parcialmente controlado por simulacao, mantendo previsibilidade do dominio;
-- um **backend FastAPI** consome, valida, persiste e transmite eventos;
-- o backend mantem **metricas em memoria** para leitura imediata;
-- eventos invalidos vao para uma **DLQ local em memoria**, sem interromper o fluxo principal;
-- um **frontend React + Vite** consome HTTP e WebSocket para apresentar o painel institucional em tempo real.
+- **Producer em Python** gera eventos transacionais;
+- **Finnhub** fornece preço real de mercado para enriquecer o evento;
+- **Redpanda/Kafka** recebe os eventos no fluxo local;
+- **FastAPI** consome, valida, processa, persiste e retransmite os eventos;
+- **PostgreSQL** armazena o histórico;
+- **WebSocket** entrega atualizações em tempo real para o frontend;
+- **React + Vite** apresenta um dashboard com linguagem visual institucional;
+- **métricas operacionais, DLQ e deduplicação** dão resiliência e observabilidade;
+- **AWS SAM + API Gateway + Lambda + S3** oferecem uma trilha paralela de ingestão serverless para testes de baixo custo.
 
-## 4. Arquitetura da Solucao
+## Arquitetura
 
 ```mermaid
 flowchart LR
-    A["Finnhub API<br/>/quote"] --> B["Producer Python"]
+    A["Finnhub API"] --> B["Producer Python"]
     B --> C["Redpanda / Kafka<br/>transactions.events"]
     C --> D["FastAPI Consumer"]
     D --> E["PostgreSQL"]
-    D --> F["Metricas em memoria"]
-    D --> G["DLQ em memoria"]
+    D --> F["Métricas em memória"]
+    D --> G["DLQ em memória"]
     D --> H["WebSocket /ws/transactions"]
-    H --> I["React Dashboard"]
+    H --> I["Frontend React"]
     D --> J["APIs HTTP<br/>/health, /events, /ops"]
     J --> I
+    B -. opcional .-> K["API Gateway"]
+    K --> L["AWS Lambda"]
+    L --> M["Amazon S3"]
+    L --> N["CloudWatch Logs"]
 ```
 
-### Componentes principais
+## Fluxo de Dados de Ponta a Ponta
 
-- **Producer**: publica eventos no topico `transactions.events`.
-- **Redpanda**: broker Kafka-compatible para streaming local.
-- **FastAPI**: camada de consumo, validacao, persistencia e exposicao de APIs.
-- **PostgreSQL**: armazenamento historico de eventos processados.
-- **WebSocket**: entrega em tempo real para o dashboard.
-- **React**: dashboard institucional com foco em monitoramento operacional.
-
-## 5. Fluxo de Dados Ponta a Ponta
-
-1. O producer seleciona um simbolo configurado via `FINNHUB_SYMBOLS`.
-2. O preco atual e consultado na API da Finnhub.
-3. O producer monta um evento transacional com:
-   - preco real (`unit_price`);
-   - quantidade simulada (`quantity`);
-   - valor financeiro derivado (`notional_amount`);
-   - contexto de cliente e tipo de evento simulados.
-4. O evento e publicado em `transactions.events`.
-5. O backend consome o evento via Kafka-compatible consumer.
-6. O payload e validado pelo schema.
-7. Se valido:
-   - atualiza metricas em memoria;
+1. O producer escolhe um símbolo configurado em `FINNHUB_SYMBOLS`.
+2. O preço atual do ativo é buscado na Finnhub.
+3. O producer monta um evento com contexto híbrido:
+   - preço real de mercado;
+   - quantidade simulada;
+   - cliente simulado;
+   - tipo de evento simulado.
+4. O evento é enviado para:
+   - `transactions.events` no fluxo local com Kafka; ou
+   - API Gateway no fluxo AWS com `EVENT_SINK=aws`.
+5. No caminho local, o backend:
+   - valida o payload;
+   - descarta inválidos para DLQ;
+   - ignora duplicados;
+   - atualiza métricas em memória;
    - persiste no PostgreSQL;
-   - evita duplicidade por `event_id`;
-   - transmite o evento via WebSocket.
-8. Se invalido:
-   - incrementa contadores operacionais;
-   - registra na DLQ em memoria;
-   - continua consumindo os proximos eventos.
-9. O frontend atualiza metricas, feed e paineis operacionais em tempo real.
+   - transmite via WebSocket.
+6. O frontend atualiza métricas, feed, painéis operacionais e histórico visual em tempo real.
 
-## 6. Stack Utilizada
+## Stack Utilizada
 
 ### Backend e dados
 
-- **Python**
-- **FastAPI**
-- **SQLAlchemy**
-- **PostgreSQL**
-- **Redpanda (Kafka-compatible)**
-- **Redis** para suporte local de infraestrutura
-- **kafka-python**
+- Python
+- FastAPI
+- SQLAlchemy
+- PostgreSQL
+- Redpanda
+- Redis
+- kafka-python
 
 ### Frontend
 
-- **React**
-- **Vite**
-- **CSS customizado**
+- React
+- Vite
+- CSS customizado
 
-### Infraestrutura
+### Infraestrutura local
 
-- **Docker Compose**
-- **Nginx** no container do frontend
+- Docker Compose
+- Nginx
 
-### Integracao externa
+### Trilha cloud
 
-- **Finnhub API** para cotacoes em tempo real
+- AWS SAM
+- API Gateway
+- AWS Lambda
+- Amazon S3
+- CloudWatch Logs
 
-## 7. Principais Funcionalidades
+### Fonte externa
 
-- monitoramento em tempo real de eventos transacionais;
-- dashboard institucional com visual de terminal financeiro;
-- consumo de eventos via Redpanda/Kafka;
-- persistencia historica em PostgreSQL;
-- feed vivo via WebSocket;
-- metricas operacionais de pipeline;
-- deduplicacao por `event_id`;
-- DLQ local para eventos invalidos;
-- endpoints para saude, historico e operacao;
-- integracao hibrida com dados reais de mercado e simulacao controlada.
+- Finnhub API
 
-## 8. Diferenciais Tecnicos
+## Principais Funcionalidades
+
+- ingestão de eventos transacionais em tempo real;
+- preços reais via Finnhub;
+- modelagem financeira com `unit_price`, `quantity` e `notional_amount`;
+- persistência histórica em PostgreSQL;
+- consumo e broadcast em tempo real via WebSocket;
+- dashboard institucional com feed ao vivo;
+- métricas operacionais do pipeline;
+- DLQ em memória para eventos inválidos;
+- deduplicação por `event_id`;
+- consulta histórica por filtros;
+- trilha serverless opcional para validação em AWS.
+
+## Diferenciais Técnicos
 
 ### Arquitetura orientada a eventos
 
-O projeto foi estruturado ao redor de um pipeline de eventos desacoplado, com producer, broker, consumer e camadas de exposicao independentes.
+O sistema foi estruturado em torno de um pipeline desacoplado, separando claramente geração, transporte, processamento, persistência e visualização.
 
-### Streaming em tempo real
+### Dados híbridos
 
-O frontend nao depende apenas de polling: a atualizacao do dashboard acontece via WebSocket com snapshot inicial e eventos subsequentes.
+O contexto transacional não é totalmente fictício nem totalmente acoplado ao mercado. O projeto usa uma abordagem híbrida:
 
-### Resiliencia operacional
+- **preço real** vindo da Finnhub;
+- **cliente, quantidade e tipo de evento simulados** para manter controle e previsibilidade.
 
-Eventos malformados nao derrubam o consumidor. Eles sao contabilizados, registrados em DLQ e expostos para observabilidade.
+Essa abordagem torna os eventos mais realistas sem perder governabilidade durante testes.
 
-### Persistencia com idempotencia
+### Observabilidade operacional
 
-Eventos validos sao persistidos no PostgreSQL com `event_id` unico para evitar inserts duplicados.
+O backend expõe saúde do pipeline, contadores operacionais, DLQ e estado recente do fluxo, o que aproxima o projeto de uma visão de produção.
 
-### Modelagem transacional mais realista
+### Resiliência
 
-O evento foi refinado para representar melhor operacoes financeiras:
+Eventos inválidos não derrubam o fluxo. Eventos duplicados não geram persistência redundante. O sistema mantém o streaming ativo mesmo em cenários degradados.
 
-- `unit_price`
-- `quantity`
-- `notional_amount`
+## Estrutura do Evento
 
-Com isso, o dashboard passa a refletir nao apenas um valor agregado, mas a composicao economica da operacao.
-
-## 9. Origem dos Dados
-
-O projeto adota uma **abordagem hibrida**:
-
-- **dados reais**: o preco unitario vem da API da **Finnhub**, usando o campo `c` da cotacao atual;
-- **dados simulados**: `client_id`, `event_type` e `quantity` sao gerados localmente para manter variedade operacional e controle do fluxo.
-
-Isso permite unir **realismo de mercado** com **previsibilidade de simulacao**, sem alterar o contrato do pipeline.
-
-### Estrutura atual do evento
+O evento financeiro atual segue este formato:
 
 ```json
 {
@@ -173,20 +165,25 @@ Isso permite unir **realismo de mercado** com **previsibilidade de simulacao**, 
 }
 ```
 
-Observacao:
+### Significado dos campos
 
-- `amount` foi mantido por compatibilidade retroativa com o fluxo existente;
-- `amount` espelha `notional_amount` no modelo atual.
+- `event_id`: identificador único da transação
+- `client_id`: cliente simulado
+- `asset`: ativo financeiro
+- `event_type`: `BUY`, `SELL`, `DEPOSIT` ou `WITHDRAWAL`
+- `unit_price`: preço unitário do ativo
+- `quantity`: quantidade da operação
+- `notional_amount`: valor financeiro total da operação
+- `amount`: mantido por compatibilidade com o pipeline existente
+- `timestamp`: data e hora do evento em ISO 8601
 
-## 10. Estrutura de Pastas
+## Estrutura de Pastas
 
 ```text
 btg-finstream-dashboard/
 |-- backend/
 |   |-- app/
 |   |   |-- api/
-|   |   |   |-- routes/
-|   |   |   `-- router.py
 |   |   |-- core/
 |   |   |-- models/
 |   |   |-- schemas/
@@ -202,26 +199,28 @@ btg-finstream-dashboard/
 |   `-- Dockerfile
 |-- producer/
 |   |-- producer.py
-|   |-- Dockerfile
-|   `-- requirements.txt
+|   |-- requirements.txt
+|   `-- Dockerfile
 |-- infra/
 |   |-- docker-compose.yml
 |   |-- frontend/
 |   |-- postgres/
 |   `-- redpanda/
+|-- aws/
+|   |-- events_ingestion/
+|   |   `-- app.py
+|   |-- sample-transaction-event.json
+|   `-- template.yaml
 |-- docs/
 |   `-- architecture.md
 |-- .env.example
-|-- .gitignore
 |-- docker-compose.yml
 `-- README.md
 ```
 
-## 11. Como Rodar Localmente
+## Como Rodar Localmente
 
-### Opcao 1: stack completa com Docker Compose
-
-Essa e a forma mais rapida de validar o fluxo completo.
+### Opção 1: stack completa com Docker Compose
 
 ```powershell
 cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard
@@ -229,12 +228,12 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Acessos principais:
+Acessos:
 
 - Frontend: [http://localhost:8080](http://localhost:8080)
 - Backend health: [http://localhost:8000/health](http://localhost:8000/health)
-- Historico: [http://localhost:8000/events/history](http://localhost:8000/events/history)
-- Operacao: [http://localhost:8000/ops/health](http://localhost:8000/ops/health)
+- Histórico: [http://localhost:8000/events/history](http://localhost:8000/events/history)
+- Operações: [http://localhost:8000/ops/health](http://localhost:8000/ops/health)
 
 Para encerrar:
 
@@ -242,16 +241,16 @@ Para encerrar:
 docker compose down
 ```
 
-### Opcao 2: desenvolvimento local por servico
+### Opção 2: desenvolvimento por serviço
 
-#### 1. Subir infraestrutura local
+#### Infraestrutura
 
 ```powershell
 cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard
 docker compose -f infra/docker-compose.yml up -d postgres redis redpanda
 ```
 
-#### 2. Rodar o backend
+#### Backend
 
 ```powershell
 cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\backend
@@ -270,7 +269,7 @@ $env:ENABLE_EVENT_CONSUMER="true"
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-#### 3. Rodar o frontend
+#### Frontend
 
 ```powershell
 cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\frontend
@@ -280,7 +279,7 @@ npm run dev
 
 Frontend local: [http://localhost:5173](http://localhost:5173)
 
-#### 4. Rodar o producer com Finnhub
+#### Producer local com Kafka
 
 ```powershell
 cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\producer
@@ -289,17 +288,18 @@ python -m venv .venv
 pip install -r requirements.txt
 $env:FINNHUB_API_KEY="sua_chave_finnhub"
 $env:FINNHUB_SYMBOLS="AAPL,MSFT,NVDA,GOOGL,AMZN"
+$env:EVENT_SINK="kafka"
 $env:KAFKA_BROKERS="localhost:19092"
 $env:EVENT_TOPIC="transactions.events"
 $env:MAX_EVENTS="5"
 python producer.py
 ```
 
-## 12. Variaveis de Ambiente
+## Variáveis de Ambiente
 
-As principais configuracoes do projeto estao em [.env.example](./.env.example).
+As configurações principais estão em [.env.example](/C:/Users/vitor/OneDrive/Documentos/Playground/btg-finstream-dashboard/.env.example).
 
-### Backend e banco
+### Backend
 
 - `POSTGRES_DB`
 - `POSTGRES_USER`
@@ -317,21 +317,113 @@ As principais configuracoes do projeto estao em [.env.example](./.env.example).
 - `EVENT_TOPIC`
 - `MARKET_TOPIC`
 
-### Producer e Finnhub
+### Producer
 
 - `FINNHUB_API_KEY`
 - `FINNHUB_SYMBOLS`
 - `PUBLISH_INTERVAL_SECONDS`
 - `MAX_EVENTS`
+- `EVENT_SINK`
+- `AWS_API_ENDPOINT`
+- `AWS_API_TIMEOUT_SECONDS`
+- `AWS_API_MAX_RETRIES`
 
 ### Frontend
 
 - `VITE_API_BASE_URL`
 - `VITE_WS_URL`
 
-## 13. Exemplos de Uso / Fluxo Esperado
+## Endpoints Importantes
 
-### Verificacao rapida de saude
+### Backend local
+
+- `GET /health`
+- `GET /events/latest`
+- `GET /events/history`
+- `GET /ops/health`
+- `GET /ops/metrics`
+- `GET /ops/dlq`
+- `WS /ws/transactions`
+
+### Trilha AWS
+
+- `POST /ingest` no API Gateway
+
+## Trilha Serverless AWS
+
+Esta trilha existe para testes de baixo custo e validação de arquitetura em nuvem, sem substituir o fluxo local.
+
+### O que ela faz
+
+- recebe eventos por HTTP via API Gateway;
+- valida o payload na Lambda;
+- grava eventos válidos em S3;
+- registra sucesso e falhas no CloudWatch;
+- permite que o producer opere em `EVENT_SINK=aws`.
+
+### Build e deploy com SAM
+
+```powershell
+cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard
+sam build --template-file aws/template.yaml
+sam deploy --guided --template-file aws/template.yaml
+```
+
+Parâmetros sugeridos:
+
+- stack name: `btg-finstream-dashboard-ingestion`
+- `StackEnvironment`: `test`
+- `EventBucketName`: nome globalmente único
+
+### Teste direto da API AWS
+
+```powershell
+curl -X POST "<EVENT_INGESTION_API_URL>" `
+  -H "Content-Type: application/json" `
+  --data "@C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\aws\sample-transaction-event.json"
+```
+
+### Producer em modo AWS
+
+```powershell
+cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\producer
+$env:FINNHUB_API_KEY="sua_chave_finnhub"
+$env:FINNHUB_SYMBOLS="AAPL,MSFT,NVDA,GOOGL,AMZN"
+$env:EVENT_SINK="aws"
+$env:AWS_API_ENDPOINT="<EVENT_INGESTION_API_URL>"
+$env:MAX_EVENTS="5"
+python producer.py
+```
+
+Observações:
+
+- no modo `EVENT_SINK=aws`, o producer não depende de `kafka-python` em tempo de execução;
+- no modo `EVENT_SINK=kafka`, `kafka-python` continua sendo necessário.
+
+### Validação operacional na AWS
+
+Logs da Lambda:
+
+```powershell
+aws logs tail /aws/lambda/<NOME_DA_FUNCAO> --follow
+```
+
+Objetos no S3:
+
+```powershell
+aws s3 ls s3://<EVENT_BUCKET_NAME>/events/ --recursive
+```
+
+### Remoção segura da stack
+
+```powershell
+aws s3 rm s3://<EVENT_BUCKET_NAME> --recursive
+sam delete --stack-name btg-finstream-dashboard-ingestion --no-prompts
+```
+
+## Exemplos de Uso
+
+### Saúde e operação
 
 ```powershell
 curl http://localhost:8000/health
@@ -340,7 +432,7 @@ curl http://localhost:8000/ops/metrics
 curl http://localhost:8000/ops/dlq
 ```
 
-### Consultar historico persistido
+### Histórico persistido
 
 ```powershell
 curl "http://localhost:8000/events/history?limit=10"
@@ -349,76 +441,41 @@ curl "http://localhost:8000/events/history?limit=10&asset=AAPL"
 curl "http://localhost:8000/events/history?limit=10&event_type=BUY"
 ```
 
-### Verificar persistencia direto no Postgres
+### Consulta direta no PostgreSQL
 
 ```powershell
 cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard
 docker compose -f infra/docker-compose.yml exec postgres psql -U btg -d btg_finstream -c "select event_id, client_id, asset, event_type, unit_price, quantity, notional_amount, timestamp, ingested_at from transaction_events order by ingested_at desc limit 10;"
 ```
 
-### Testar o comportamento da DLQ
+## Screenshots
 
-Com o backend rodando, envie um evento invalido:
+O repositório ainda não possui imagens versionadas do dashboard. Para visualizar a interface:
 
-```powershell
-cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\producer
-@'
-import json
-from kafka import KafkaProducer
+- desenvolvimento: [http://localhost:5173](http://localhost:5173)
+- stack conteinerizada: [http://localhost:8080](http://localhost:8080)
 
-producer = KafkaProducer(
-    bootstrap_servers=["localhost:19092"],
-    value_serializer=lambda value: json.dumps(value).encode("utf-8"),
-)
-producer.send(
-    "transactions.events",
-    {
-        "event_id": "bad-001",
-        "asset": "AAPL",
-        "event_type": "BUY",
-        "amount": 0,
-        "timestamp": "not-a-timestamp",
-    },
-)
-producer.flush()
-producer.close()
-'@ | .venv\Scripts\python.exe -
-```
+## Evoluções Futuras
 
-Depois consulte:
-
-```powershell
-curl http://localhost:8000/ops/metrics
-curl http://localhost:8000/ops/dlq
-```
-
-## 14. Screenshots
-
-No estado atual do repositorio, nao ha imagens versionadas para documentar a interface. O dashboard, no entanto, pode ser visualizado localmente em:
-
-- [http://localhost:5173](http://localhost:5173) durante o desenvolvimento
-- [http://localhost:8080](http://localhost:8080) na stack conteinerizada
-
-## 15. Possiveis Evolucoes Futuras
-
-- adicionar migracoes formais com Alembic;
+- adicionar migrações formais com Alembic;
 - persistir DLQ em storage dedicado;
-- incluir autenticacao e autorizacao por perfis de usuario;
-- adicionar testes automatizados de integracao e carga;
-- incorporar metricas Prometheus e tracing distribuido;
-- separar analytics historicos em visoes agregadas;
-- conectar mais fontes de mercado e multiplos topicos.
+- incluir autenticação e autorização;
+- criar testes automatizados de integração e carga;
+- adicionar métricas e tracing;
+- expandir analytics históricos;
+- evoluir a trilha AWS com EventBridge, SQS ou Step Functions quando fizer sentido.
 
-## 16. Conclusao
+## Valor do Projeto para Portfólio
 
-O **BTG FinStream Dashboard** e um projeto de portfolio que demonstra capacidade de desenhar e implementar uma solucao moderna de dados em tempo real, com preocupacoes concretas de engenharia:
+O **BTG FinStream Dashboard** demonstra domínio prático de temas valorizados em engenharia moderna:
 
-- integracao com dado externo real;
-- modelagem de eventos financeiros;
 - arquitetura orientada a eventos;
-- resiliencia operacional;
-- persistencia historica;
-- entrega em tempo real no frontend;
-- design de dashboard com linguagem institucional.
+- integração com dado externo real;
+- modelagem de eventos financeiros;
+- persistência e histórico;
+- observabilidade e resiliência;
+- streaming para frontend em tempo real;
+- experiência visual com linguagem institucional;
+- capacidade de trabalhar tanto em stack local quanto em trilha serverless na AWS.
 
-Mais do que um CRUD ou uma API isolada, este projeto mostra uma cadeia completa de processamento, observabilidade e apresentacao, muito proxima de cenarios encontrados em plataformas financeiras, mesas de operacao e produtos internos de monitoramento.
+Mais do que uma API isolada, este projeto apresenta uma cadeia completa de ingestão, processamento, visualização e operação, com decisões arquiteturais que fazem sentido em cenários financeiros e plataformas internas de monitoramento.
