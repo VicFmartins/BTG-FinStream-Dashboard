@@ -1,0 +1,136 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-btg_finstream}
+      POSTGRES_USER: ${POSTGRES_USER:-btg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-btg_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-btg} -d ${POSTGRES_DB:-btg_finstream}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redpanda:
+    image: redpandadata/redpanda:v24.1.10
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --check=false
+      - --node-id
+      - "0"
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092,OUTSIDE://localhost:19092
+      - --pandaproxy-addr
+      - 0.0.0.0:8082
+      - --advertise-pandaproxy-addr
+      - redpanda:8082
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info --brokers 127.0.0.1:9092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  redpanda-init:
+    image: redpandadata/redpanda:v24.1.10
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/infra/redpanda/bootstrap.sh"]
+    volumes:
+      - ./infra/redpanda/bootstrap.sh:/infra/redpanda/bootstrap.sh:ro
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_NAME: BTG FinStream Dashboard API
+      APP_ENV: docker
+      APP_VERSION: 0.1.0
+      APP_HOST: ${APP_HOST:-0.0.0.0}
+      APP_PORT: ${APP_PORT:-8000}
+      POSTGRES_DSN: postgresql+psycopg://${POSTGRES_USER:-btg}:${POSTGRES_PASSWORD:-btg_secret}@postgres:5432/${POSTGRES_DB:-btg_finstream}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-redpanda:9092}
+      EVENT_TOPIC: ${EVENT_TOPIC:-transactions.events}
+      MARKET_TOPIC: ${MARKET_TOPIC:-transactions.events}
+      KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-btg-finstream-backend}
+      ENABLE_EVENT_CONSUMER: ${ENABLE_EVENT_CONSUMER:-true}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  producer:
+    build:
+      context: ./producer
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-redpanda:9092}
+      EVENT_TOPIC: ${EVENT_TOPIC:-transactions.events}
+      MARKET_TOPIC: ${MARKET_TOPIC:-transactions.events}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      FINNHUB_SYMBOLS: ${FINNHUB_SYMBOLS:-AAPL,MSFT,NVDA,GOOGL,AMZN}
+      PUBLISH_INTERVAL_SECONDS: ${PUBLISH_INTERVAL_SECONDS:-1.5}
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  redpanda_data:

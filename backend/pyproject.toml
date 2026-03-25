@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "btg-finstream-backend"
+version = "0.1.0"
+description = "FastAPI backend for BTG FinStream Dashboard"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0,<1.0.0",
+  "uvicorn[standard]>=0.30.0,<1.0.0",
+  "pydantic-settings>=2.4.0,<3.0.0",
+  "kafka-python>=2.0.2,<3.0.0",
+  "sqlalchemy>=2.0.36,<3.0.0",
+  "psycopg[binary]>=3.2.3,<4.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
