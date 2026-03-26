@@ -333,4 +333,4 @@ sam delete --stack-name btg-finstream-dashboard-ingestion --no-prompts
 
 ## Autor
 
-Projeto desenvolvido como portfólio técnico para demonstrar capacidade em arquitetura orientada a eventos, engenharia de dados em tempo real, backend Python, frontend analítico e desenho de soluções com aderência a contexto financeiro.
+Vitória
