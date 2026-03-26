@@ -197,14 +197,14 @@ btg-finstream-dashboard/
 ### 1. Subir infraestrutura local
 
 ```powershell
-cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard
+cd btg-finstream-dashboard
 docker compose -f infra/docker-compose.yml up -d postgres redis redpanda
 ```
 
 ### 2. Rodar o backend
 
 ```powershell
-cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\backend
+cd backend
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -223,7 +223,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ### 3. Rodar o frontend
 
 ```powershell
-cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -236,7 +236,7 @@ Acesse:
 ### 4. Rodar o producer no fluxo local
 
 ```powershell
-cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\producer
+cd producer
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -268,7 +268,7 @@ A trilha AWS foi pensada para teste econômico e validação arquitetural, sem s
 ### Build e deploy com SAM
 
 ```powershell
-cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard
+cd btg-finstream-dashboard
 sam build --template-file aws/template.yaml
 sam deploy --guided --template-file aws/template.yaml
 ```
@@ -284,13 +284,13 @@ Parâmetros recomendados:
 ```powershell
 curl -X POST "<EVENT_INGESTION_API_URL>" `
   -H "Content-Type: application/json" `
-  --data "@C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\aws\sample-transaction-event.json"
+  --data "@aws/sample-transaction-event.json"
 ```
 
 ### Rodar o producer em modo AWS
 
 ```powershell
-cd C:\Users\vitor\OneDrive\Documentos\Playground\btg-finstream-dashboard\producer
+cd producer
 $env:FINNHUB_API_KEY="SUA_CHAVE_FINNHUB"
 $env:FINNHUB_SYMBOLS="AAPL,MSFT,NVDA,GOOGL,AMZN"
 $env:EVENT_SINK="aws"
@@ -333,4 +333,4 @@ sam delete --stack-name btg-finstream-dashboard-ingestion --no-prompts
 
 ## Autor
 
-Projeto desenvolvido por **Vitória Martins** como demonstração de capacidade técnica em arquitetura orientada a eventos, engenharia de dados em tempo real, backend Python, frontend analítico e desenho de soluções com aderência a contexto financeiro.
+Projeto desenvolvido como portfólio técnico para demonstrar capacidade em arquitetura orientada a eventos, engenharia de dados em tempo real, backend Python, frontend analítico e desenho de soluções com aderência a contexto financeiro.
