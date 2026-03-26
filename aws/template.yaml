@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: BTG FinStream Dashboard - trilha serverless de ingestao para testes de baixo custo
+
+Parameters:
+  StackEnvironment:
+    Type: String
+    Default: test
+    Description: Identificador curto do ambiente
+  EventBucketName:
+    Type: String
+    Description: Nome globalmente unico do bucket S3 que recebera os eventos
+  LambdaMemorySize:
+    Type: Number
+    Default: 256
+    Description: Memoria da Lambda em MB
+  LambdaTimeoutSeconds:
+    Type: Number
+    Default: 10
+    Description: Timeout da Lambda em segundos
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures:
+      - x86_64
+    MemorySize: !Ref LambdaMemorySize
+    Timeout: !Ref LambdaTimeoutSeconds
+    Tracing: PassThrough
+    Environment:
+      Variables:
+        EVENT_BUCKET_NAME: !Ref EventBucket
+
+Resources:
+  EventBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref EventBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireTestEvents
+            Status: Enabled
+            ExpirationInDays: 14
+
+  EventIngestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: events_ingestion/
+      Handler: app.lambda_handler
+      Description: Ingestao serverless de eventos financeiros para testes
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - S3WritePolicy:
+            BucketName: !Ref EventBucket
+      Events:
+        EventIngestionApi:
+          Type: HttpApi
+          Properties:
+            Path: /ingest
+            Method: post
+
+Outputs:
+  EventIngestionApiUrl:
+    Description: Endpoint HTTP para ingestao de eventos
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/ingest"
+  EventBucketName:
+    Description: Bucket S3 que recebe os eventos ingeridos
+    Value: !Ref EventBucket
+  EventIngestionFunctionName:
+    Description: Nome da funcao Lambda de ingestao
+    Value: !Ref EventIngestionFunction

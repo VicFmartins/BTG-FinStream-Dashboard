@@ -1,0 +1,11 @@
+{
+  "event_id": "sample-event-001",
+  "client_id": "client-0007",
+  "asset": "AAPL",
+  "event_type": "BUY",
+  "unit_price": 215.75,
+  "quantity": 40,
+  "notional_amount": 8630.0,
+  "amount": 8630.0,
+  "timestamp": "2026-03-25T12:00:00+00:00"
+}

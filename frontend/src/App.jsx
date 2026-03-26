@@ -1,12 +1,28 @@
 import { useEffect, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 const HEALTH_URL = `${API_BASE_URL}/health`;
 const EVENTS_URL = `${API_BASE_URL}/events/latest`;
+const HISTORY_URL = `${API_BASE_URL}/events/history?limit=72`;
 const OPS_HEALTH_URL = `${API_BASE_URL}/ops/health`;
 const OPS_METRICS_URL = `${API_BASE_URL}/ops/metrics`;
 const OPS_DLQ_URL = `${API_BASE_URL}/ops/dlq`;
 const MAX_EVENTS = 10;
+const MAX_HISTORY_EVENTS = 72;
 const NAV_ITEMS = [
   { key: "overview", title: "Overview" },
   { key: "transactionFeed", title: "Transaction Feed" },
@@ -31,6 +47,13 @@ const EVENT_TYPE_META = {
     tone: "withdrawal",
     accent: "Risk watch",
   },
+};
+
+const EVENT_TYPE_COLORS = {
+  BUY: "#45b787",
+  SELL: "#c6964a",
+  DEPOSIT: "#819edb",
+  WITHDRAWAL: "#c96f77",
 };
 
 const EMPTY_METRICS = {
@@ -86,6 +109,24 @@ function formatQuantity(value) {
   }).format(value);
 }
 
+function formatAxisTime(timestamp) {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function parseEventDate(timestamp) {
+  const parsedDate = new Date(timestamp);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function toMinuteBucket(date) {
+  const bucketDate = new Date(date);
+  bucketDate.setSeconds(0, 0);
+  return bucketDate;
+}
+
 function formatTimestamp(timestamp) {
   return new Date(timestamp).toLocaleString();
 }
@@ -110,6 +151,16 @@ function upsertEvent(currentEvents, incomingEvent) {
   return nextEvents.slice(0, MAX_EVENTS);
 }
 
+function upsertHistoryEvent(currentEvents, incomingEvent) {
+  const nextEvents = [
+    incomingEvent,
+    ...currentEvents.filter((event) => event.event_id !== incomingEvent.event_id),
+  ];
+
+  nextEvents.sort((left, right) => new Date(right.timestamp) - new Date(left.timestamp));
+  return nextEvents.slice(0, MAX_HISTORY_EVENTS);
+}
+
 function percentage(value, total) {
   if (!total) {
     return 0;
@@ -123,6 +174,30 @@ function sparklineFromValues(values) {
   const maxValue = Math.max(...safeValues, 1);
 
   return safeValues.map((value) => Math.max(18, Math.round((value / maxValue) * 100)));
+}
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  return (
+    <div className="chart-tooltip">
+      {label ? <p className="chart-tooltip-label">{label}</p> : null}
+      {payload.map((entry) => (
+        <div key={`${entry.name}-${entry.dataKey}`} className="chart-tooltip-row">
+          <span className="chart-tooltip-key" style={{ color: entry.color }}>
+            {entry.name}
+          </span>
+          <strong>
+            {entry.payload?.format === "currency" || entry.dataKey === "notional"
+              ? formatCurrency(entry.value)
+              : formatCompactNumber(entry.value)}
+          </strong>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function StatusBadge({ status }) {
@@ -211,6 +286,7 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [activeSection, setActiveSection] = useState("overview");
   const [events, setEvents] = useState([]);
+  const [historyEvents, setHistoryEvents] = useState([]);
   const [metrics, setMetrics] = useState(EMPTY_METRICS);
   const [opsMetrics, setOpsMetrics] = useState(EMPTY_OPS);
   const [pipelineHealth, setPipelineHealth] = useState("checking");
@@ -222,14 +298,21 @@ function App() {
 
     async function loadInitialState() {
       try {
-        const [healthResponse, eventsResponse, opsHealthResponse, opsMetricsResponse, opsDlqResponse] =
-          await Promise.all([
-            fetch(HEALTH_URL),
-            fetch(EVENTS_URL),
-            fetch(OPS_HEALTH_URL),
-            fetch(OPS_METRICS_URL),
-            fetch(OPS_DLQ_URL),
-          ]);
+        const [
+          healthResponse,
+          eventsResponse,
+          historyResponse,
+          opsHealthResponse,
+          opsMetricsResponse,
+          opsDlqResponse,
+        ] = await Promise.all([
+          fetch(HEALTH_URL),
+          fetch(EVENTS_URL),
+          fetch(HISTORY_URL),
+          fetch(OPS_HEALTH_URL),
+          fetch(OPS_METRICS_URL),
+          fetch(OPS_DLQ_URL),
+        ]);
 
         if (!isMounted) {
           return;
@@ -243,6 +326,11 @@ function App() {
           if (payload.latest_event) {
             setEvents([payload.latest_event]);
           }
+        }
+
+        if (historyResponse.ok) {
+          const payload = await historyResponse.json();
+          setHistoryEvents(payload);
         }
 
         if (opsHealthResponse.ok) {
@@ -305,11 +393,13 @@ function App() {
 
         if (payload.type === "snapshot" && payload.event) {
           setEvents((currentEvents) => upsertEvent(currentEvents, payload.event));
+          setHistoryEvents((currentEvents) => upsertHistoryEvent(currentEvents, payload.event));
           return;
         }
 
         if (payload.type === "transaction_event" && payload.event) {
           setEvents((currentEvents) => upsertEvent(currentEvents, payload.event));
+          setHistoryEvents((currentEvents) => upsertHistoryEvent(currentEvents, payload.event));
         }
       };
 
@@ -348,6 +438,7 @@ function App() {
   const latestSuccessfulLabel = opsMetrics.last_successful_event_timestamp
     ? formatTimestamp(opsMetrics.last_successful_event_timestamp)
     : "No persisted events yet";
+  const analyticsSourceEvents = historyEvents.length ? historyEvents : events;
 
   const eventTypeEntries = Object.entries(metrics.events_by_type ?? EMPTY_METRICS.events_by_type);
   const totalObservedOps = Math.max(
@@ -388,6 +479,84 @@ function App() {
   const invalidRate = percentage(opsMetrics.total_invalid_events, totalObservedOps).toFixed(1);
   const duplicateRate = percentage(opsMetrics.duplicate_events_skipped, totalValidEvents).toFixed(1);
   const persistedRate = percentage(opsMetrics.total_persisted_events, totalValidEvents).toFixed(1);
+  const validAnalyticsEvents = analyticsSourceEvents
+    .map((event) => {
+      const parsedDate = parseEventDate(event.timestamp);
+      if (!parsedDate) {
+        return null;
+      }
+
+      return {
+        ...event,
+        parsedDate,
+      };
+    })
+    .filter(Boolean);
+  const volumeBuckets = validAnalyticsEvents.reduce((accumulator, event) => {
+    const bucketDate = toMinuteBucket(event.parsedDate);
+    const bucketKey = bucketDate.toISOString();
+    const currentBucket = accumulator.get(bucketKey) ?? {
+      time: formatAxisTime(bucketKey),
+      timestamp: formatTimestamp(bucketKey),
+      volume: 0,
+      format: "currency",
+    };
+
+    currentBucket.volume += Number(event.notional_amount ?? event.amount ?? 0);
+    accumulator.set(bucketKey, currentBucket);
+    return accumulator;
+  }, new Map());
+  const volumeSeries = [...volumeBuckets.entries()]
+    .sort(([leftKey], [rightKey]) => new Date(leftKey) - new Date(rightKey))
+    .slice(-24)
+    .map(([, bucket]) => ({
+      time: bucket.time,
+      volume: Number(bucket.volume.toFixed(2)),
+      timestamp: bucket.timestamp,
+      format: "currency",
+    }));
+  const eventDistributionChartData = Object.entries(
+    analyticsSourceEvents.reduce(
+      (accumulator, event) => ({
+        ...accumulator,
+        [event.event_type]: (accumulator[event.event_type] ?? 0) + 1,
+      }),
+      { BUY: 0, SELL: 0, DEPOSIT: 0, WITHDRAWAL: 0 },
+    ),
+  ).map(([name, value]) => ({
+    name,
+    value,
+    color: EVENT_TYPE_COLORS[name],
+    format: "count",
+  }));
+  const assetActivityData = Object.values(
+    analyticsSourceEvents.reduce((accumulator, event) => {
+      const entry = accumulator[event.asset] ?? {
+        asset: event.asset,
+        trades: 0,
+        notional: 0,
+        format: "currency",
+      };
+
+      entry.trades += 1;
+      entry.notional += Number(event.notional_amount ?? event.amount ?? 0);
+      accumulator[event.asset] = entry;
+      return accumulator;
+    }, {}),
+  )
+    .sort((left, right) => right.notional - left.notional)
+    .slice(0, 5);
+  const dominantAsset = assetActivityData[0];
+
+  if (import.meta.env.DEV) {
+    console.debug("Analytics chart pipeline", {
+      rawHistoryEventsCount: historyEvents.length,
+      liveEventsCount: events.length,
+      parsedValidEventsCount: validAnalyticsEvents.length,
+      finalAggregatedSeries: volumeSeries,
+    });
+  }
+
   const sectionDescriptions = {
     overview:
       "Continuous visibility into transaction ingestion, persistence, and operational integrity across the live event pipeline.",
@@ -650,6 +819,167 @@ function App() {
     </article>
   );
 
+  const analyticsVolumePanel = (
+    <article className="panel analytics-chart-panel">
+      <PanelHeader
+        eyebrow="Volume Over Time"
+        title="Intraday transaction volume"
+        aside={<span className="panel-pill panel-pill-muted">Last {volumeSeries.length} prints</span>}
+      />
+
+      <div className="chart-shell chart-shell-wide">
+        {volumeSeries.length ? (
+          <ResponsiveContainer width="100%" height={252}>
+            <LineChart data={volumeSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="rgba(129, 158, 219, 0.08)" vertical={false} />
+              <XAxis
+                dataKey="time"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "#7d879d", fontSize: 11 }}
+              />
+              <YAxis
+                tickFormatter={(value) => formatCompactNumber(value)}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "#7d879d", fontSize: 11 }}
+                width={44}
+              />
+              <Tooltip content={<ChartTooltip />} />
+              <Line
+                type="monotone"
+                dataKey="volume"
+                name="Volume"
+                stroke="#819edb"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, strokeWidth: 0, fill: "#819edb" }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="empty-state">
+            No valid transaction buckets available yet for volume visualization.
+          </div>
+        )}
+      </div>
+    </article>
+  );
+
+  const analyticsDistributionPanel = (
+    <article className="panel analytics-chart-panel">
+      <PanelHeader
+        eyebrow="Event Distribution"
+        title="Flow mix by event type"
+        aside={<span className="panel-pill panel-pill-muted">Rolling window</span>}
+      />
+
+      <div className="chart-shell chart-shell-split">
+        {eventDistributionChartData.some((entry) => entry.value > 0) ? (
+          <>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={eventDistributionChartData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={62}
+                  outerRadius={88}
+                  paddingAngle={3}
+                >
+                  {eventDistributionChartData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip content={<ChartTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+
+            <div className="chart-legend">
+              {eventDistributionChartData.map((entry) => (
+                <div key={entry.name} className="chart-legend-row">
+                  <span className="chart-legend-key">
+                    <span
+                      className="chart-legend-dot"
+                      style={{ backgroundColor: entry.color }}
+                    />
+                    {entry.name}
+                  </span>
+                  <strong>{entry.value}</strong>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="empty-state">Event distribution will appear once live events are processed.</div>
+        )}
+      </div>
+    </article>
+  );
+
+  const analyticsAssetPanel = (
+    <article className="panel analytics-chart-panel">
+      <PanelHeader
+        eyebrow="Asset Concentration"
+        title="Most active assets"
+        aside={
+          dominantAsset ? (
+            <span className="panel-pill panel-pill-muted">{dominantAsset.asset} leads</span>
+          ) : null
+        }
+      />
+
+      <div className="chart-shell chart-shell-wide">
+        {assetActivityData.length ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={assetActivityData}
+              layout="vertical"
+              margin={{ top: 0, right: 8, left: 8, bottom: 0 }}
+            >
+              <CartesianGrid stroke="rgba(129, 158, 219, 0.08)" horizontal={false} />
+              <XAxis
+                type="number"
+                tickFormatter={(value) => formatCompactNumber(value)}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "#7d879d", fontSize: 11 }}
+              />
+              <YAxis
+                type="category"
+                dataKey="asset"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "#d9e2f5", fontSize: 12 }}
+                width={62}
+              />
+              <Tooltip content={<ChartTooltip />} />
+              <Bar
+                dataKey="notional"
+                name="Notional"
+                fill="#5874a7"
+                radius={[0, 8, 8, 0]}
+                maxBarSize={18}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="empty-state">Asset concentration becomes available as history builds up.</div>
+        )}
+      </div>
+
+      <div className="chart-summary-grid">
+        {assetActivityData.slice(0, 3).map((entry) => (
+          <div key={entry.asset} className="chart-summary-card">
+            <span className="card-label">{entry.asset}</span>
+            <strong>{formatCurrency(entry.notional)}</strong>
+            <span className="card-note">{entry.trades} transactions in window</span>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+
   const operationsSnapshotPanel = (
     <article className="panel">
       <PanelHeader
@@ -813,7 +1143,11 @@ function App() {
 
         <section className="analytics-grid">
           <div className="workspace-main">
-            {eventMixPanel}
+            {analyticsVolumePanel}
+            <div className="analytics-chart-grid">
+              {analyticsDistributionPanel}
+              {analyticsAssetPanel}
+            </div>
             {analyticsInsightsPanel}
           </div>
           <aside className="workspace-side">

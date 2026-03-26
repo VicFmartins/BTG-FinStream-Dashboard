@@ -1,0 +1,14 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "btg-finstream-dashboard-ingestion"
+resolve_s3 = true
+s3_prefix = "btg-finstream-dashboard-ingestion"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "StackEnvironment=\"test\" EventBucketName=\"btg-finstream-vi-2026\" LambdaMemorySize=\"256\" LambdaTimeoutSeconds=\"10\""
+image_repositories = []
+
+[default.global.parameters]
+region = "us-east-1"

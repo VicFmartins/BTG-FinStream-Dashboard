@@ -2,25 +2,27 @@ import json
 import os
 import random
 import time
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
-
-from kafka import KafkaProducer
-from kafka.admin import KafkaAdminClient, NewTopic
-from kafka.errors import NoBrokersAvailable, TopicAlreadyExistsError
 
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:19092")
 EVENT_TOPIC = os.getenv("EVENT_TOPIC", os.getenv("MARKET_TOPIC", "transactions.events"))
 PUBLISH_INTERVAL_SECONDS = float(os.getenv("PUBLISH_INTERVAL_SECONDS", "1.5"))
 MAX_EVENTS = int(os.getenv("MAX_EVENTS", "0"))
 ENABLE_KAFKA = os.getenv("ENABLE_KAFKA", "true").lower() == "true"
+EVENT_SINK = os.getenv("EVENT_SINK", "kafka").strip().lower()
 KAFKA_STARTUP_TIMEOUT_SECONDS = int(os.getenv("KAFKA_STARTUP_TIMEOUT_SECONDS", "30"))
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
 FINNHUB_QUOTE_URL = os.getenv("FINNHUB_QUOTE_URL", "https://finnhub.io/api/v1/quote")
 FINNHUB_TIMEOUT_SECONDS = float(os.getenv("FINNHUB_TIMEOUT_SECONDS", "10"))
+AWS_API_ENDPOINT = os.getenv("AWS_API_ENDPOINT", "").strip()
+AWS_API_TIMEOUT_SECONDS = float(os.getenv("AWS_API_TIMEOUT_SECONDS", "10"))
+AWS_API_MAX_RETRIES = int(os.getenv("AWS_API_MAX_RETRIES", "2"))
 FINNHUB_SYMBOLS = [
     symbol.strip().upper()
     for symbol in os.getenv("FINNHUB_SYMBOLS", "AAPL,MSFT,NVDA,GOOGL,AMZN").split(",")
@@ -34,6 +36,15 @@ _missing_key_warning_emitted = False
 
 
 def wait_for_redpanda() -> None:
+    try:
+        from kafka.admin import KafkaAdminClient
+        from kafka.errors import NoBrokersAvailable
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "kafka-python is required only when EVENT_SINK=kafka. "
+            "Install producer/requirements.txt to use the Kafka path."
+        ) from error
+
     deadline = time.time() + KAFKA_STARTUP_TIMEOUT_SECONDS
 
     while True:
@@ -50,6 +61,15 @@ def wait_for_redpanda() -> None:
 
 
 def ensure_topic() -> None:
+    try:
+        from kafka.admin import KafkaAdminClient, NewTopic
+        from kafka.errors import TopicAlreadyExistsError
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "kafka-python is required only when EVENT_SINK=kafka. "
+            "Install producer/requirements.txt to use the Kafka path."
+        ) from error
+
     topic = NewTopic(name=EVENT_TOPIC, num_partitions=1, replication_factor=1)
     admin_client = KafkaAdminClient(bootstrap_servers=KAFKA_BROKERS.split(","))
 
@@ -62,7 +82,15 @@ def ensure_topic() -> None:
         admin_client.close()
 
 
-def build_producer() -> KafkaProducer:
+def build_producer() -> Any:
+    try:
+        from kafka import KafkaProducer
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "kafka-python is required only when EVENT_SINK=kafka. "
+            "Install producer/requirements.txt to use the Kafka path."
+        ) from error
+
     return KafkaProducer(
         bootstrap_servers=KAFKA_BROKERS.split(","),
         value_serializer=lambda value: json.dumps(value).encode("utf-8"),
@@ -152,11 +180,15 @@ def financial_transaction_event() -> tuple[dict[str, object], str, float]:
 
 
 def publish_event(
-    producer: KafkaProducer | None,
+    producer: Any | None,
     event: dict[str, object],
     price_source: str,
     current_price: float,
 ) -> None:
+    if EVENT_SINK == "aws":
+        post_event_to_aws(event, price_source, current_price)
+        return
+
     if producer is None:
         print(
             json.dumps(
@@ -177,13 +209,68 @@ def publish_event(
     )
 
 
+def post_event_to_aws(
+    event: dict[str, object],
+    price_source: str,
+    current_price: float,
+) -> None:
+    if not AWS_API_ENDPOINT:
+        raise ValueError("AWS_API_ENDPOINT must be set when EVENT_SINK=aws")
+
+    request = urllib.request.Request(
+        AWS_API_ENDPOINT,
+        data=json.dumps(event).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "BTG-FinStream-Producer/1.0",
+        },
+        method="POST",
+    )
+
+    for attempt in range(1, AWS_API_MAX_RETRIES + 2):
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=AWS_API_TIMEOUT_SECONDS,
+                context=ssl.create_default_context(),
+            ) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+                print(
+                    "posted to aws "
+                    f"endpoint={AWS_API_ENDPOINT} source={price_source} price={current_price:.2f}: "
+                    f"{json.dumps(response_payload)}"
+                )
+                return
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+        ) as error:
+            if attempt > AWS_API_MAX_RETRIES:
+                print(
+                    "failed to post event to aws "
+                    f"endpoint={AWS_API_ENDPOINT} source={price_source} event_id={event['event_id']}: {error}"
+                )
+                return
+
+            print(
+                f"retrying aws event publish attempt={attempt} event_id={event['event_id']}: {error}"
+            )
+            time.sleep(1)
+
+
 def main() -> None:
-    if ENABLE_KAFKA:
+    if EVENT_SINK == "kafka" and ENABLE_KAFKA:
         wait_for_redpanda()
         ensure_topic()
         producer = build_producer()
-    else:
+    elif EVENT_SINK == "kafka":
         producer = None
+    elif EVENT_SINK == "aws":
+        producer = None
+    else:
+        raise ValueError("EVENT_SINK must be either 'kafka' or 'aws'")
 
     sent_events = 0
 
