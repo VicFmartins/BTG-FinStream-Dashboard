@@ -333,4 +333,4 @@ sam delete --stack-name btg-finstream-dashboard-ingestion --no-prompts
 
 ## Autor
 
-Vitória
+Projeto desenvolvido por **Vitória Martins** como estudo aplicado de arquitetura orientada a eventos, processamento em tempo real, backend Python, frontend analítico e desenho de soluções para contexto financeiro.
