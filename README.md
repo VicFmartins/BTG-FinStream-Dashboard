@@ -11,7 +11,7 @@ A solução combina:
 
 - geração de eventos em Python;
 - preços reais via Finnhub;
-- streaming local com Kafka-compatible broker;
+- streaming local com broker compatível com Kafka;
 - processamento backend com FastAPI;
 - persistência em PostgreSQL;
 - broadcast em tempo real via WebSocket;
@@ -166,7 +166,31 @@ btg-finstream-dashboard/
 |   |   `-- app.py
 |   |-- sample-transaction-event.json
 |   `-- template.yaml
+|-- docs/
+|   `-- prints/
 ```
+
+## Capturas de Tela
+
+### Visão Geral
+
+![Visão geral do dashboard](docs/prints/dashboard-overview.png)
+
+### Feed de Transações
+
+![Tela de feed de transações](docs/prints/dashboard-transaction-feed.png)
+
+### Analytics
+
+![Tela analítica do dashboard](docs/prints/dashboard-analytics.png)
+
+### Analytics com Gráficos
+
+![Tela analítica com gráficos](docs/prints/dashboard-analytics-charts.png)
+
+### Operações
+
+![Tela operacional do dashboard](docs/prints/dashboard-operations.png)
 
 ## Executando Localmente
 
